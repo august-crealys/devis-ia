@@ -1,0 +1,250 @@
+/**
+ * QuoteEditForm — Formulaire d'édition d'un devis existant
+ * Identique à QuoteForm mais pré-rempli et utilise updateQuoteAction
+ */
+
+"use client";
+
+import { useState, useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { LineItemsEditor, type LineItem } from "./LineItemsEditor";
+import { TotalsSummary } from "./TotalsSummary";
+import { updateQuoteAction } from "@/app/actions/quotes";
+import type { ActionResult } from "@/app/actions/auth";
+import type { Client, Product, Quote } from "@/types";
+import { addToSyncQueue, registerBackgroundSync, saveOfflineQuote } from "@/lib/offline-db";
+import { useAuthStore } from "@/store/auth.store";
+import { OfflineActionNotice } from "@/components/pwa/OfflineActionNotice";
+
+interface QuoteEditFormProps {
+  quote: Quote;
+  clients: Client[];
+  products: Product[];
+  taxRate: number;
+}
+
+const initialState: ActionResult = {};
+
+export function QuoteEditForm({ quote, clients, products, taxRate }: QuoteEditFormProps) {
+  const router = useRouter();
+  const [items, setItems] = useState<LineItem[]>(
+    (quote.quote_items ?? []).map((item) => ({
+      product_id: item.product_id,
+      designation: item.designation,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+    }))
+  );
+  const [discount, setDiscount] = useState(quote.discount);
+  const [selectedClientId, setSelectedClientId] = useState<string | undefined>(quote.client_id);
+  const [isSavingOffline, setIsSavingOffline] = useState(false);
+  const [offlineError, setOfflineError] = useState<string | null>(null);
+
+  const action = updateQuoteAction.bind(null, quote.id);
+  const [state, formAction, isPending] = useActionState(action, initialState);
+  const companyId = useAuthStore((store) => store.company?.id);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    if (navigator.onLine) return;
+    event.preventDefault();
+    if (!companyId || quote.company_id !== companyId) {
+      setOfflineError("Entreprise indisponible hors ligne. Reconnectez-vous puis réessayez.");
+      return;
+    }
+
+    setIsSavingOffline(true);
+    setOfflineError(null);
+    const formData = new FormData(event.currentTarget);
+    const discountValue = Number(formData.get("discount") ?? 0);
+    const notes = String(formData.get("notes") ?? "");
+    const validUntil = String(formData.get("valid_until") ?? "");
+    const subtotal = items.reduce(
+      (sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
+      0
+    );
+    const tax = (subtotal - discountValue) * (taxRate / 100);
+    const localQuote = {
+      id: quote.id,
+      company_id: companyId,
+      quote_number: quote.quote_number,
+      client_name: clients.find((client) => client.id === selectedClientId)?.name,
+      client_id: selectedClientId,
+      status: quote.status,
+      subtotal,
+      tax,
+      discount: discountValue,
+      valid_until: validUntil || undefined,
+      total: subtotal - discountValue + tax,
+      notes,
+      created_at: quote.created_at,
+      items: items.map((item) => ({
+        designation: item.designation,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total: item.quantity * item.unit_price,
+      })),
+      sync_status: "pending_update" as const,
+    };
+    const payload = {
+      company_id: companyId,
+      id: quote.id,
+      client_id: selectedClientId,
+      discount: discountValue,
+      valid_until: validUntil,
+      notes,
+      items,
+      local_quote: localQuote,
+    };
+
+    try {
+      await saveOfflineQuote(localQuote);
+      await addToSyncQueue("UPDATE_QUOTE", payload);
+      try {
+        await registerBackgroundSync();
+      } catch {
+        // Online-event synchronization remains available when Background Sync is unsupported.
+      }
+      router.push("/quotes");
+    } catch (error) {
+      console.error("Erreur de sauvegarde hors-ligne du devis:", error);
+      setOfflineError("Impossible d'enregistrer les modifications sur cet appareil.");
+    } finally {
+      setIsSavingOffline(false);
+    }
+  };
+
+  // Dès que la mise à jour est réussie, naviguer vers le devis pour que le PDF soit immédiatement à jour
+  useEffect(() => {
+    if (state.success) {
+      router.push(`/quotes/${quote.id}`);
+      router.refresh();
+    }
+  }, [state.success, quote.id, router]);
+
+  const clientOptions = clients.map((c) => ({ value: c.id, label: c.name }));
+  const selectedClient = clients.find((c) => c.id === selectedClientId);
+
+  return (
+    <form action={formAction} onSubmit={handleSubmit} className="space-y-6">
+      <OfflineActionNotice />
+      {offlineError && (
+        <div
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          role="alert"
+        >
+          {offlineError}
+        </div>
+      )}
+      {state.error && (
+        <div
+          className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm"
+          role="alert"
+        >
+          {state.error}
+        </div>
+      )}
+
+      <input type="hidden" name="items" value={JSON.stringify(items)} />
+      <input type="hidden" name="discount" value={discount} />
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6 lg:p-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+          {/* Colonne principale */}
+          <div className="lg:col-span-2 space-y-6 lg:space-y-8">
+            {/* Client Selection & Information Card */}
+            <div className="space-y-3 lg:space-y-4">
+              <Select
+                name="client_id"
+                label="Client"
+                placeholder="Sélectionner un client"
+                options={clientOptions}
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+                required
+              />
+              {selectedClient && (
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-4 sm:p-5 text-sm text-gray-600 space-y-1 lg:space-y-2 shadow-sm transition-all duration-200 animate-fadeIn">
+                  <p className="font-semibold text-blue-900 text-xs uppercase tracking-wider mb-1 lg:mb-2">
+                    Informations Client
+                  </p>
+                  {selectedClient.email && (
+                    <p className="flex items-center gap-1.5 lg:gap-2">
+                      <span className="font-medium text-gray-700 w-16 lg:w-20">Email:</span>{" "}
+                      {selectedClient.email}
+                    </p>
+                  )}
+                  {selectedClient.phone && (
+                    <p className="flex items-center gap-1.5 lg:gap-2">
+                      <span className="font-medium text-gray-700 w-16 lg:w-20">Téléphone:</span>{" "}
+                      {selectedClient.phone}
+                    </p>
+                  )}
+                  {selectedClient.address && (
+                    <p className="flex items-center gap-1.5 lg:gap-2">
+                      <span className="font-medium text-gray-700 w-16 lg:w-20">Adresse:</span>{" "}
+                      {selectedClient.address}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Articles */}
+            <div className="bg-gradient-to-br from-gray-50 to-slate-50 rounded-xl border border-gray-100 p-4 sm:p-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-3 lg:mb-4">
+                Articles
+              </label>
+              <LineItemsEditor items={items} onChange={setItems} products={products} />
+            </div>
+
+            <Textarea
+              name="notes"
+              label="Notes (optionnel)"
+              rows={3}
+              defaultValue={quote.notes ?? ""}
+            />
+          </div>
+
+          {/* Colonne latérale (Sticky) */}
+          <div className="space-y-4 lg:space-y-6 lg:sticky lg:top-4 h-fit">
+            <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-xl border border-gray-200 p-4 sm:p-5">
+              <Input
+                name="valid_until"
+                type="date"
+                label="Valide jusqu'au"
+                defaultValue={quote.valid_until ?? ""}
+              />
+            </div>
+            <TotalsSummary
+              items={items}
+              taxRate={taxRate}
+              discount={discount}
+              onDiscountChange={setDiscount}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:justify-between gap-3 pt-4 lg:pt-6 border-t border-gray-100 mt-6 lg:mt-8">
+          <Link href={`/quotes/${quote.id}`}>
+            <Button type="button" variant="outline" className="w-full sm:w-auto">
+              Annuler
+            </Button>
+          </Link>
+          <Button
+            type="submit"
+            size="lg"
+            isLoading={isPending || isSavingOffline}
+            className="w-full sm:w-auto px-8 lg:px-10 shadow-lg"
+          >
+            {isPending ? "Enregistrement..." : "Enregistrer les modifications"}
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+}

@@ -1,0 +1,61 @@
+{
+  "name": "devis-ai",
+  "version": "0.0.1",
+  "private": true,
+  "Creation_date": "2026-06-05",
+  "author": {
+    "name": "August",
+    "email": "simporetaugustin@gmail.com"
+  },
+  "scripts": {
+    "predev": "npm run copy:ocr",
+    "dev": "next dev --webpack",
+    "prebuild": "npm run copy:ocr",
+    "build": "next build",
+    "copy:ocr": "node src/scripts/copy-ocr-assets.mjs",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:unit && npm run build"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.16",
+    "@react-pdf/renderer": "^4.5.1",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3",
+    "@tesseract.js-data/fra": "^1.0.0",
+    "clsx": "^2.1.1",
+    "ioredis": "^6.0.0",
+    "lucide-react": "^1.18.0",
+    "next": "16.2.9",
+    "openai": "^6.42.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "sharp": "^0.35.5",
+    "tailwind-merge": "^3.6.0",
+    "tesseract.js": "^7.0.0",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/ioredis": "^4.28.10",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitest/ui": "^4.1.11",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  }
+}

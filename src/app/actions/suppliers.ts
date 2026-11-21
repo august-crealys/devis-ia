@@ -1,0 +1,208 @@
+/**
+ * Server Actions pour les fournisseurs
+ *
+ * Opérations CRUD sur les fournisseurs
+ */
+
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentCompanyForAction } from "@/lib/current-company";
+import type { ActionResult } from "./auth";
+import type { SupplierInsert } from "@/types";
+
+const OFFLINE_UUID = "00000000-0000-0000-0000-000000000000";
+
+export async function createSupplierAction(
+  _prevState: ActionResult,
+  formData: FormData
+): Promise<ActionResult> {
+  const name = formData.get("name") as string;
+  const phone = formData.get("phone") as string | null;
+  const email = formData.get("email") as string | null;
+  const address = formData.get("address") as string | null;
+
+  if (!name) {
+    return { error: "Le nom du fournisseur est requis" };
+  }
+
+  const company = await getCurrentCompanyForAction();
+
+  if (!company) {
+    return { error: "Entreprise introuvable" };
+  }
+
+  const offlineSyncIdValue = formData.get("offline_sync_id");
+  const offlineSyncId =
+    typeof offlineSyncIdValue === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      offlineSyncIdValue
+    )
+      ? offlineSyncIdValue
+      : null;
+  if (offlineSyncIdValue && !offlineSyncId)
+    return { error: "Identifiant local de synchronisation invalide." };
+  if (company.id === OFFLINE_UUID)
+    return { error: "Connexion requise pour synchroniser le fournisseur." };
+
+  const supabase = await createClient();
+  if (offlineSyncId) {
+    const { data: existing, error: lookupError } = await supabase
+      .from("suppliers")
+      .select("id")
+      .eq("id", offlineSyncId)
+      .eq("company_id", company.id)
+      .maybeSingle();
+    if (lookupError) return { error: "Impossible de vérifier le fournisseur déjà synchronisé." };
+    if (existing) return { success: true };
+  }
+
+  const supplierData: SupplierInsert = {
+    ...(offlineSyncId ? { id: offlineSyncId } : {}),
+    company_id: company.id,
+    name,
+    phone: phone || null,
+    email: email || null,
+    address: address || null,
+  };
+
+  const { error } = await supabase.from("suppliers").insert(supplierData);
+
+  if (error) {
+    if (offlineSyncId && error.code === "23505") {
+      const { data: existing } = await supabase
+        .from("suppliers")
+        .select("id")
+        .eq("id", offlineSyncId)
+        .eq("company_id", company.id)
+        .maybeSingle();
+      if (existing) return { success: true };
+    }
+    console.error("Supabase error:", error);
+    return {
+      error: `Erreur lors de la création du fournisseur: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/suppliers");
+  if (offlineSyncId) return { success: true };
+  redirect("/suppliers");
+}
+
+export type QuickSupplierResult = {
+  error?: string;
+  supplier?: { id: string; name: string };
+};
+
+export async function createQuickSupplierAction(
+  name: string,
+  phone?: string,
+  email?: string
+): Promise<QuickSupplierResult> {
+  const cleanName = name.trim();
+  if (!cleanName) {
+    return { error: "Le nom du fournisseur est requis" };
+  }
+
+  const company = await getCurrentCompanyForAction();
+  if (!company) {
+    return { error: "Entreprise introuvable" };
+  }
+
+  if (company.id === OFFLINE_UUID) {
+    return {
+      error: "Impossible de créer un fournisseur hors-ligne. Reconnectez-vous pour synchroniser.",
+    };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("suppliers")
+    .insert({
+      company_id: company.id,
+      name: cleanName,
+      phone: phone || null,
+      email: email || null,
+    })
+    .select("id, name")
+    .single();
+
+  if (error || !data) {
+    console.error("Erreur créant fournisseur rapide:", error);
+    return { error: error?.message || "Erreur lors de la création du fournisseur" };
+  }
+
+  revalidatePath("/suppliers");
+  revalidatePath("/products");
+  return { supplier: data };
+}
+
+export async function updateSupplierAction(
+  _prevState: ActionResult,
+  formData: FormData,
+  supplierId: string
+): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  const name = formData.get("name") as string;
+  const phone = formData.get("phone") as string | null;
+  const email = formData.get("email") as string | null;
+  const address = formData.get("address") as string | null;
+
+  if (!name) {
+    return { error: "Le nom du fournisseur est requis" };
+  }
+
+  const company = await getCurrentCompanyForAction();
+  if (!company) {
+    return { error: "Entreprise introuvable" };
+  }
+
+  const { error } = await supabase
+    .from("suppliers")
+    .update({
+      name,
+      phone: phone || null,
+      email: email || null,
+      address: address || null,
+    })
+    .eq("id", supplierId)
+    .eq("company_id", company.id);
+
+  if (error) {
+    return { error: "Erreur lors de la mise à jour du fournisseur" };
+  }
+
+  revalidatePath("/suppliers");
+  revalidatePath(`/suppliers/${supplierId}`);
+  if (formData.get("offline_sync") === "true") return { success: true };
+  redirect(`/suppliers/${supplierId}`);
+}
+
+export async function deleteSupplierAction(
+  supplierId: string,
+  offlineSync = false
+): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  const company = await getCurrentCompanyForAction();
+  if (!company) {
+    return { error: "Entreprise introuvable" };
+  }
+
+  const { error } = await supabase
+    .from("suppliers")
+    .delete()
+    .eq("id", supplierId)
+    .eq("company_id", company.id);
+
+  if (error) {
+    return { error: "Erreur lors de la suppression du fournisseur" };
+  }
+
+  revalidatePath("/suppliers");
+  if (offlineSync) return { success: true };
+  redirect("/suppliers");
+}
