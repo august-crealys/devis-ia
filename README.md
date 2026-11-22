@@ -94,6 +94,17 @@ migration locale directement sur une base de production.
 Pour l'authentification Google, activez le fournisseur dans Supabase Auth et
 configurez ses URL de redirection pour l'environnement local
 (`http://localhost:3000/auth/callback`) et pour votre fournisseur OAuth.
+Sur Vercel, définissez `NEXT_PUBLIC_SITE_URL` dans l'environnement Production
+sur l'URL canonique du site (actuellement
+`https://devis-ia-psi.vercel.app`), puis redéployez. Dans Supabase Auth,
+définissez cette même URL comme `Site URL` et ajoutez
+`https://devis-ia-psi.vercel.app/auth/callback` aux URL de redirection
+autorisées. Dans la console Google OAuth, l'URI de redirection autorisée doit
+être celle fournie par Supabase
+(`https://<project-ref>.supabase.co/auth/v1/callback`), et non l'URL Vercel.
+Gardez `http://localhost:3000` comme URL canonique dans le `.env.local` de
+développement et ajoutez aussi son callback aux URL autorisées de Supabase pour
+tester en local.
 
 ## Lancer l'application
 

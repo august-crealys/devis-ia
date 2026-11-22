@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { registerAction } from "@/app/actions/auth";
-import { signInWithGoogle } from "@/lib/supabase/client";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,18 +11,10 @@ export default function RegisterPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleGoogleSignup = async () => {
-    try {
-      setGoogleLoading(true);
-      setError("");
-
-      const { error: authError } = await signInWithGoogle();
-      if (authError) throw authError;
-    } catch (err) {
-      console.error(err);
-      setError("Une erreur est survenue lors de l'inscription via Google.");
-      setGoogleLoading(false);
-    }
+  const handleGoogleSignup = () => {
+    setGoogleLoading(true);
+    setError("");
+    window.location.assign("/auth/google");
   };
 
   const handleEmailRegister = async (e: React.FormEvent<HTMLFormElement>) => {

@@ -4,7 +4,6 @@ import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { loginAction } from "@/app/actions/auth";
-import { signInWithGoogle } from "@/lib/supabase/client";
 
 function LoginForm() {
   const router = useRouter();
@@ -16,18 +15,10 @@ function LoginForm() {
     return errorParam ? decodeURIComponent(errorParam) : "";
   });
 
-  const handleGoogleLogin = async () => {
-    try {
-      setGoogleLoading(true);
-      setError("");
-
-      const { error: authError } = await signInWithGoogle();
-      if (authError) throw authError;
-    } catch (err) {
-      console.error(err);
-      setError("Une erreur est survenue lors de la connexion via Google.");
-      setGoogleLoading(false);
-    }
+  const handleGoogleLogin = () => {
+    setGoogleLoading(true);
+    setError("");
+    window.location.assign("/auth/google");
   };
 
   const handleEmailLogin = async (e: React.FormEvent<HTMLFormElement>) => {
